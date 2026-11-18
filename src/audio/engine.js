@@ -134,6 +134,9 @@ class AudioEngine extends EventEmitter {
   toggleMute() { this.muted = !this.muted; this._applyVolume(); this.emit('change'); }
   setVolume(n) { this.cfg.audio.volume = n; this._applyVolume(); this.emit('change'); }
 
+  // Arret synchrone des processus enfants (utilise par le filet process.on('exit')).
+  kill() { this._cleanup(); }
+
   dispose() {
     this._cleanup();
     this.player.stop(true);

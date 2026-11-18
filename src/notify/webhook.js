@@ -6,17 +6,32 @@ const EVENTS = new Set(['CONNECTED', 'DISCONNECTED', 'VOICE_JOINED', 'VOICE_LEFT
 
 function isValidUrl(u) { return URL_RE.test(String(u || '')); }
 
-async function post(url, event, code) {
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function post(url, event, code, { fetchImpl = fetch, sleepFn = sleep } = {}) {
   if (!isValidUrl(url)) throw new Error('invalid webhook URL');
   if (!EVENTS.has(event)) throw new Error('event not allowed');
   const content = '[DVT] ' + event + (code ? ' ' + ascii(code, 40) : '');
-  const res = await fetch(url, {
+  const init = () => ({
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ content, allowed_mentions: { parse: [] } }),
     signal: AbortSignal.timeout(8000)
   });
-  if (!res.ok) throw new Error('webhook HTTP ' + res.status);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const res = await fetchImpl(url, init());
+    if (res.status === 429 && attempt === 0) {
+      // Rate limit Discord : on attend retry_after (secondes) si c'est raisonnable, une seule fois.
+      let retry = NaN;
+      try { retry = Number((await res.json()).retry_after); } catch (_) { /* corps illisible */ }
+      if (!(retry > 0 && retry <= 5)) throw new Error('webhook rate limited');
+      await sleepFn(Math.ceil(retry * 1000));
+      continue;
+    }
+    if (res.status === 429) throw new Error('webhook rate limited');
+    if (!res.ok) throw new Error('webhook HTTP ' + res.status);
+    return;
+  }
 }
 
 class Notifier {
@@ -44,4 +59,4 @@ class Notifier {
   async test() { await post(this.getUrl(), 'TEST'); }
 }
 
-module.exports = { Notifier, isValidUrl };
+module.exports = { Notifier, isValidUrl, post };

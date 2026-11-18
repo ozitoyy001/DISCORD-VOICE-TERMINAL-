@@ -16,6 +16,15 @@ class DiscordService extends EventEmitter {
     this.user = null;
     this.connection = null;
     this.player = null;
+    this.guildId = null;
+    this.channelId = null;
+  }
+
+  // Branche le lecteur audio (AudioEngine.player) sur la connexion vocale.
+  // Sans cet appel, rien n'est jamais transmis au salon (bug critique de la v1.0).
+  setPlayer(player) {
+    this.player = player;
+    if (this.connection && player) this.connection.subscribe(player);
   }
 
   _set(next) {
@@ -37,8 +46,9 @@ class DiscordService extends EventEmitter {
     }
     if (res.status === 401) throw new AppError('token rejected by Discord (invalid or reset)');
     if (!res.ok) throw new AppError('Discord API error HTTP ' + res.status);
-    const u = await res.json();
-    if (!u.bot) throw new AppError('this token does not belong to a bot');
+    let u;
+    try { u = await res.json(); } catch (_) { throw new AppError('unexpected response from Discord'); }
+    if (!u || !u.bot) throw new AppError('this token does not belong to a bot');
     return { id: u.id, name: u.username };
   }
 
@@ -50,7 +60,11 @@ class DiscordService extends EventEmitter {
     client.on('shardDisconnect', () => {
       if (this.client === client && this.state === 'CONNECTED') this._set('DISCONNECTED');
     });
-    client.on('shardResume', () => { if (this.client === client) this._set('CONNECTED'); });
+    // shardResume = reprise de session ; shardReady = nouvelle session (reconnexion complete).
+    // Sans shardReady, l'etat restait bloque sur DISCONNECTED alors que le bot refonctionnait.
+    const back = () => { if (this.client === client && client.isReady()) this._set('CONNECTED'); };
+    client.on('shardResume', back);
+    client.on('shardReady', back);
     client.on('guildCreate', () => this.emit('change'));
     client.on('guildDelete', () => this.emit('change'));
     this.client = client;

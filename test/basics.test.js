@@ -11,7 +11,7 @@ test('ascii strips non printable characters', () => {
 });
 
 test('pad truncates and fills', () => {
-  assert.equal(pad('abcdef', 4), 'ab...');
+  assert.equal(pad('abcdef', 4), 'a...');   // la limite inclut les points de suspension
   assert.equal(pad('ab', 4), 'ab  ');
 });
 

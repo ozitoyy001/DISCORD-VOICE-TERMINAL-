@@ -6,7 +6,7 @@ const tts = require('../audio/tts');
 const { listDevices } = require('../audio/engine');
 const { isValidUrl } = require('../notify/webhook');
 const { frame } = require('./render');
-const { AppError } = require('../util/errors');
+const { AppError, describe } = require('../util/errors');
 
 const PAGE = 8;
 const CLEAR = '\x1b[2J\x1b[3J\x1b[H';
@@ -38,7 +38,11 @@ class App {
       else if (next === 'DISCONNECTED' && prev === 'CONNECTED' && !this.closing) this.notifier.notify('DISCONNECTED');
     });
     discord.on('joined', () => this.notifier.notify('VOICE_JOINED'));
-    discord.on('left', () => { this.audio.stop(); this.notifier.notify('VOICE_LEFT'); this.draw(); });
+    discord.on('left', () => {
+      this.audio.stop();
+      if (!this.closing) this.notifier.notify('VOICE_LEFT'); // a la fermeture, quit() l'envoie lui-meme
+      this.draw();
+    });
     audio.on('change', () => this.draw());
     audio.on('failure', (code, msg) => {
       this.log.error(code + ': ' + msg);
@@ -67,15 +71,19 @@ class App {
     this.drawNow();
   }
 
-  async quit() {
+  async quit(code = 0) {
     if (this.closing) return;
     this.closing = true;
     const guard = setTimeout(() => process.exit(1), 6000);
     try {
       this.audio.stop();
       const wasConnected = this.discord.state === 'CONNECTED';
+      const hadVoice = !!this.discord.connection;
       this.discord.leave();
-      if (wasConnected) await this.notifier.notifyNow('DISCONNECTED');
+      const alerts = [];
+      if (hadVoice) alerts.push(this.notifier.notifyNow('VOICE_LEFT'));
+      if (wasConnected) alerts.push(this.notifier.notifyNow('DISCONNECTED'));
+      await Promise.all(alerts);
       await this.discord.disconnect();
       this.audio.dispose();
     } catch (e) {
@@ -84,7 +92,7 @@ class App {
     clearTimeout(guard);
     this.rl.close();
     process.stdout.write('\n');
-    process.exit(0);
+    process.exit(code);
   }
 
   draw() {
@@ -253,7 +261,8 @@ class App {
 
   report(e, code) {
     const known = e instanceof AppError;
-    this.log.error((code || 'ERROR') + ': ' + (e && e.message));
+    // Erreur connue : message seul. Erreur inattendue : message + debut de stack (aide au debogage).
+    this.log.error((code || 'ERROR') + ': ' + (known ? e.message : describe(e)));
     this.err(known ? e.message : 'unexpected error (see Logs)');
     if (code && (!known || e.alert)) this.notifier.notify('ERROR', code);
   }
@@ -331,7 +340,7 @@ class App {
       case '2': await this.deleteToken(); return true;
       case '3': await this.guard('TOKEN_CHECK_FAILED', () => this.verifyToken()); return true;
       case '4': await this.guard('LOGIN_FAILED', () => this.connectBot()); return true;
-      case '5': await this.discord.disconnect(); this.ok('Bot DISCONNECTED'); return true;
+      case '5': await this.exclusive('connect', () => this.discord.disconnect()); this.ok('Bot DISCONNECTED'); return true;
       case 'b': this.go('main'); return true;
       default: return false;
     }
@@ -349,7 +358,7 @@ class App {
 
   async deleteToken() {
     if (process.env.DISCORD_BOT_TOKEN) throw new AppError('token comes from DISCORD_BOT_TOKEN: unset it');
-    await this.discord.disconnect();
+    await this.exclusive('connect', () => this.discord.disconnect());
     config.deleteSecret('token');
     this.ok('Token deleted, bot DISCONNECTED');
   }

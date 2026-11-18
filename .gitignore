@@ -1,4 +1,9 @@
 node_modules/
 *.log
-secrets.json
+*.log.1
 .env
+secrets.json
+config.json
+*.corrupt-*
+*.tmp
+.DS_Store
