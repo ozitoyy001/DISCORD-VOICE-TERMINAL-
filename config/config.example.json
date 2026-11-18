@@ -1,0 +1,21 @@
+{
+  "guildId": null,
+  "channelId": null,
+  "mode": "MIC",
+  "audio": {
+    "inputDevice": "default",
+    "inputLabel": "Default",
+    "auxDevice": null,
+    "auxLabel": null,
+    "useAux": false,
+    "volume": 100
+  },
+  "tts": {
+    "language": "fr",
+    "voice": "",
+    "speed": 160
+  },
+  "webhook": {
+    "enabled": false
+  }
+}
